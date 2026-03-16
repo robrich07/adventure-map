@@ -1,4 +1,6 @@
-import { TILE_SIZE, WORLD_BOUNDS } from "../constants/map";
+import * as turf from '@turf/turf';
+import type { Feature, Polygon, MultiPolygon } from 'geojson';
+import { TILE_SIZE, WORLD_BOUNDS, TILE_CIRCLE_RADIUS_KM } from "../constants/map";
 
 export type TileId = {
     x: number;
@@ -25,23 +27,6 @@ export function coordsToTile(lat: number, lng: number): TileId {
     };
 }
 
-// Converts a TileId into 4 corner coords of that tile as a closed GEOJSON ring
-// GEOJSON uses [Lng, Lat] ordering
-export function tileToGeoJSONRing(tile: TileId): number[][] {
-    const minLng = tile.x * TILE_SIZE;
-    const maxLng = (tile.x + 1) * TILE_SIZE;
-    const minLat = tile.y * TILE_SIZE;
-    const maxLat = (tile.y + 1) * TILE_SIZE;
-
-    return [
-        [minLng, minLat],
-        [minLng, maxLat],
-        [maxLng, maxLat],
-        [maxLng, minLat],
-        [minLng, minLat], // close the ring (same as first coord)
-    ];
-}
-
 // Returns unique key for tiles
 export function tileKey(tile: TileId): string {
     return `${tile.x}_${tile.y}`;
@@ -63,6 +48,20 @@ export function filterTilesInBounds(tiles: TileId[], bounds: BoundingBox): TileI
     );
 }
 
+// Returns center coords of a tile in GeoJSON format
+export function tileCenterCoords(tile: TileId): [number, number] {
+    const lng = (tile.x + 0.5) * TILE_SIZE;
+    const lat = (tile.y + 0.5) * TILE_SIZE;
+    return [lng, lat];
+}
+
+// Creates circular GeoJSON polygon around tile center
+// 32 steps produces smooth circle without too many verticies
+export function tileToCircle(tile: TileId): Feature<Polygon> {
+    const center = tileCenterCoords(tile);
+    return turf.circle(center, TILE_CIRCLE_RADIUS_KM, { steps: 32 });
+}
+
 // Builds GEOJSON polygon for fog overlay, outer ring is whole world then each other ring is a hole for explored tiles
 export function buildFogGeoJSON(visibleExploredTiles: TileId[]) {
     const outerRing = [
@@ -73,7 +72,28 @@ export function buildFogGeoJSON(visibleExploredTiles: TileId[]) {
         [WORLD_BOUNDS.minLng, WORLD_BOUNDS.minLat],
     ];
 
-    const holes = visibleExploredTiles.map(tileToGeoJSONRing);
+    if (visibleExploredTiles.length === 0) {
+        return {
+            type: 'Feature' as const,
+            geometry: {
+                type: 'Polygon' as const,
+                coordinates: [outerRing],
+            },
+            properties: {},
+        };
+    }
+    
+    // create circle for each tile then union them
+    const circles = visibleExploredTiles.map(tileToCircle);
+    const merged = circles.length === 1
+    ? circles[0]
+    : turf.union(turf.featureCollection(circles))!;
+
+    // Extract coordinate rings from merged shape to use as holes in the fog
+    const holes =
+        merged.geometry.type === 'Polygon'
+            ? merged.geometry.coordinates
+            : merged.geometry.coordinates.flat();
 
     return {
         type: 'Feature' as const,
@@ -83,5 +103,4 @@ export function buildFogGeoJSON(visibleExploredTiles: TileId[]) {
         },
         properties: {},
     };
-
 }
