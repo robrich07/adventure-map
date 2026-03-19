@@ -17,12 +17,13 @@ export default {
                 {
                     locationAlwaysAndWhenInUsePermission: "Adventure Map uses your location to track where you have explored.",
                     locationWhenInUsePermission: "Adventure Map uses your location to track where you have explored.",
+                    isAndroidBackgroundLocationEnabled: true,
+                    isAndroidForegroundServiceEnabled: true,
                 }
             ],
-            [
-                "@rnmapbox/maps",
-            ],
-        
+            "@rnmapbox/maps",
+            "expo-sqlite",
+            "expo-task-manager",
         ],
         ios: {
             supportsTablet: true,
@@ -43,6 +44,10 @@ export default {
             permissions: [
                 "ACCESS_FINE_LOCATION",
                 "ACCESS_COARSE_LOCATION",
+                "ACCESS_BACKGROUND_LOCATION",
+                "FOREGROUND_SERVICE",
+                "FOREGROUND_SERVICE_LOCATION",
+                "RECEIVE_BOOT_COMPLETED",
             ],
         },
         web: {

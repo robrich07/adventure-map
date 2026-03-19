@@ -1,29 +1,34 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View, ActivityIndicator } from 'react-native';
-import Mapbox, { Camera, UserLocation } from '@rnmapbox/maps';
+import Mapbox, { Camera, UserLocation, UserLocationRenderMode } from '@rnmapbox/maps';
 import { useLocation } from './hooks/useLocation';
 import { MAPBOX_TOKEN } from './constants/map';
 import { FogOverlay } from './components/FogOverlay';
 import { BoundingBox, TileId, coordsToTile } from './lib/tiles';
+import './tasks/locationTask';
+import { useTiles } from './hooks/useTiles';
+import * as Location from 'expo-location';
+import { LOCATION_TASK_NAME, LOCATION_UPDATE_INTERVAL_MS, LOCATION_DISTANCE_INTERVAL_M } from './constants/map';
 
 Mapbox.setAccessToken(MAPBOX_TOKEN);
 
 // Hardcoded test coords, will remove once tile tracking is implemented
-const TEST_TILES: TileId[] = [
-  coordsToTile(40.7456, -74.0549), // original test tile
-  coordsToTile(40.7460, -74.0549), // one tile north
-  coordsToTile(40.7460, -74.0539), // northeast
-  coordsToTile(40.7456, -74.0539), // one tile east
-  coordsToTile(40.7450, -74.0549), // one tile south
-  coordsToTile(40.7450, -74.0539), // southeast
-  coordsToTile(40.7453, -74.0544), // middle cluster
-  coordsToTile(40.7465, -74.0560), // further northwest
-  coordsToTile(40.7470, -74.0555), // further north
-  coordsToTile(40.7445, -74.0530), // further southeast
-];
+// const TEST_TILES: TileId[] = [
+//   coordsToTile(40.7456, -74.0549), // original test tile
+//   coordsToTile(40.7460, -74.0549), // one tile north
+//   coordsToTile(40.7460, -74.0539), // northeast
+//   coordsToTile(40.7456, -74.0539), // one tile east
+//   coordsToTile(40.7450, -74.0549), // one tile south
+//   coordsToTile(40.7450, -74.0539), // southeast
+//   coordsToTile(40.7453, -74.0544), // middle cluster
+//   coordsToTile(40.7465, -74.0560), // further northwest
+//   coordsToTile(40.7470, -74.0555), // further north
+//   coordsToTile(40.7445, -74.0530), // further southeast
+// ];
 
 export default function App() {
   const { coords, loading, permissionGranted, error } = useLocation();
+  const exploredTiles = useTiles();
 
   const [visibleBounds, setVisibleBounds] = useState<BoundingBox>({
     minLat: -85,
@@ -38,6 +43,34 @@ export default function App() {
     const [[maxLng, maxLat], [minLng, minLat]] = bounds;
     setVisibleBounds({ minLat, maxLat, minLng, maxLng });
   }, []);
+
+  useEffect(() => {
+    if (!permissionGranted) return;
+
+    (async () => {
+      const { status } = await Location.requestBackgroundPermissionsAsync();
+      if (status !== 'granted') {
+        console.warn('Background location permission denied');
+        return;
+      }
+
+      const isRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME).catch(() => false);
+
+      if (!isRunning) {
+        await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: LOCATION_UPDATE_INTERVAL_MS,
+          distanceInterval: LOCATION_DISTANCE_INTERVAL_M,
+          showsBackgroundLocationIndicator: true,
+          foregroundService: {
+            notificationTitle: 'Adventure Map',
+            notificationBody: 'Recording your exploration.',
+            notificationColor: '#191923'
+          },
+        });
+      }
+    })();
+  }, [permissionGranted]);
 
   if (loading) {
     return (
@@ -71,9 +104,9 @@ export default function App() {
           animationMode="flyTo"
           animationDuration={800}
         />
-        <UserLocation visible={true} />
+        <UserLocation renderMode={UserLocationRenderMode.Native} />
         <FogOverlay
-          exploredTiles={TEST_TILES}
+          exploredTiles={exploredTiles}
           visibleBounds={visibleBounds}
         />
       </Mapbox.MapView>

@@ -16,3 +16,8 @@ export const WORLD_BOUNDS = {
     minLng: -180,
     maxLng: 180,
 };
+
+// Background location updates
+export const LOCATION_TASK_NAME = 'background-location-task';
+export const LOCATION_UPDATE_INTERVAL_MS = 5000;
+export const LOCATION_DISTANCE_INTERVAL_M = 10;
