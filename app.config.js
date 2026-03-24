@@ -2,6 +2,7 @@ export default {
     expo: {
         name: "Adventure Map",
         slug: "adventure-map",
+        scheme: "adventure-map",
         version: "1.0.0",
         orientation: "portrait",
         icon: "./assets/icon.png",
@@ -24,6 +25,8 @@ export default {
             "@rnmapbox/maps",
             "expo-sqlite",
             "expo-task-manager",
+            "expo-secure-store",
+            "expo-web-browser",
         ],
         ios: {
             supportsTablet: true,
