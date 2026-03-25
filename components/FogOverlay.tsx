@@ -1,16 +1,21 @@
-import { ShapeSource, FillLayer } from "@rnmapbox/maps";
-import { FOG_COLOR } from "../constants/map";
-import { TileId, BoundingBox, filterTilesInBounds, buildFogGeoJSON } from "../lib/tiles";
+import type { Feature, Polygon, MultiPolygon } from 'geojson';
+import { ShapeSource, FillLayer } from '@rnmapbox/maps';
+import { FOG_COLOR } from '../constants/map';
+import { BoundingBox, clipToViewport, buildFogGeoJSON } from '../lib/tiles';
 
 type Props = {
-    exploredTiles: TileId[];
+    masterPolygon: Feature<Polygon | MultiPolygon> | null;
     visibleBounds: BoundingBox;
 };
 
-// Renders fog overlay on map, only tiles within viewport are included
-export function FogOverlay({ exploredTiles, visibleBounds }: Props) {
-    const visibleTiles = filterTilesInBounds(exploredTiles, visibleBounds);
-    const fogGeoJSON = buildFogGeoJSON(visibleTiles);
+// Renders fog overlay. Clips master polygon to viewport before rendering
+// so Mapbox only processes the visible explored area.
+export function FogOverlay({ masterPolygon, visibleBounds }: Props) {
+    const clipped = masterPolygon
+        ? clipToViewport(masterPolygon, visibleBounds)
+        : null;
+
+    const fogGeoJSON = buildFogGeoJSON(clipped);
 
     return (
         <ShapeSource id="fog-source" shape={fogGeoJSON}>

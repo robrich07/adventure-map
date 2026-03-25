@@ -4,32 +4,38 @@ import Mapbox, { Camera, UserLocation, UserLocationRenderMode } from '@rnmapbox/
 import { useLocation } from '../hooks/useLocation';
 import { MAPBOX_TOKEN } from '../constants/map';
 import { FogOverlay } from '../components/FogOverlay';
-import { BoundingBox, TileId, coordsToTile } from '../lib/tiles';
+import { DebugTileGrid } from '../components/DebugTileGrid';
+import { BoundingBox, TileId } from '../lib/tiles';
 import '../tasks/locationTask';
-import { useTiles } from '../hooks/useTiles';
+import { useMasterPolygon } from '../hooks/useMasterPolygon';
+import { getAllTilesFromSupabase } from '../lib/database';
 import * as Location from 'expo-location';
 import { LOCATION_TASK_NAME, LOCATION_UPDATE_INTERVAL_MS, LOCATION_DISTANCE_INTERVAL_M } from '../constants/map';
 import { signOut } from '../lib/auth';
+import { useAuth } from '../hooks/useAuth';
 
 Mapbox.setAccessToken(MAPBOX_TOKEN);
 
-// Hardcoded test coords, will remove once tile tracking is implemented
-// const TEST_TILES: TileId[] = [
-//   coordsToTile(40.7456, -74.0549), // original test tile
-//   coordsToTile(40.7460, -74.0549), // one tile north
-//   coordsToTile(40.7460, -74.0539), // northeast
-//   coordsToTile(40.7456, -74.0539), // one tile east
-//   coordsToTile(40.7450, -74.0549), // one tile south
-//   coordsToTile(40.7450, -74.0539), // southeast
-//   coordsToTile(40.7453, -74.0544), // middle cluster
-//   coordsToTile(40.7465, -74.0560), // further northwest
-//   coordsToTile(40.7470, -74.0555), // further north
-//   coordsToTile(40.7445, -74.0530), // further southeast
-// ];
-
 export function MapScreen() {
   const { coords, loading, permissionGranted, error } = useLocation();
-  const exploredTiles = useTiles();
+  const { session } = useAuth();
+  const userId = session?.user?.id;
+  const masterPolygon = useMasterPolygon(userId ?? '');
+  const [debugGrid, setDebugGrid] = useState(false);
+  const [debugTiles, setDebugTiles] = useState<TileId[]>([]);
+  const [zoomLevel, setZoomLevel] = useState(14);
+
+  // Load tile list when debug mode is toggled on
+  useEffect(() => {
+    if (!debugGrid || !userId) {
+      setDebugTiles([]);
+      return;
+    }
+    (async () => {
+      const tiles = await getAllTilesFromSupabase(userId);
+      setDebugTiles(tiles);
+    })();
+  }, [debugGrid, userId]);
 
   const [visibleBounds, setVisibleBounds] = useState<BoundingBox>({
     minLat: -85,
@@ -43,6 +49,13 @@ export function MapScreen() {
     if (!bounds) return;
     const [[maxLng, maxLat], [minLng, minLat]] = bounds;
     setVisibleBounds({ minLat, maxLat, minLng, maxLng });
+  }, []);
+
+  const handleCameraChanged = useCallback((event: any) => {
+    const zoom = event?.properties?.zoom;
+    if (zoom != null) {
+      setZoomLevel(Math.round(zoom * 10) / 10);
+    }
   }, []);
 
   useEffect(() => {
@@ -98,6 +111,7 @@ export function MapScreen() {
         style={styles.map}
         styleURL={Mapbox.StyleURL.Dark}
         onMapIdle={handleRegionChange}
+        onCameraChanged={handleCameraChanged}
       >
         <Camera
           zoomLevel={14}
@@ -107,10 +121,22 @@ export function MapScreen() {
         />
         <UserLocation renderMode={UserLocationRenderMode.Native} />
         <FogOverlay
-          exploredTiles={exploredTiles}
+          masterPolygon={masterPolygon}
           visibleBounds={visibleBounds}
         />
+        {debugGrid && <DebugTileGrid tiles={debugTiles} />}
       </Mapbox.MapView>
+      <TouchableOpacity
+            style={styles.debugButton}
+            onPress={() => setDebugGrid(prev => !prev)}
+        >
+            <Text style={styles.debugText}>{debugGrid ? 'Hide Grid' : 'Show Grid'}</Text>
+        </TouchableOpacity>
+      {debugGrid && (
+        <View style={styles.zoomBadge}>
+          <Text style={styles.debugText}>z{zoomLevel}</Text>
+        </View>
+      )}
       <TouchableOpacity
             style={styles.signOutButton}
             onPress={signOut}
@@ -136,6 +162,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     color: '#444',
+  },
+  debugButton: {
+    position: 'absolute',
+    top: 48,
+    left: 16,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  debugText: {
+    color: '#00ff88',
+    fontSize: 14,
+  },
+  zoomBadge: {
+    position: 'absolute',
+    top: 48,
+    left: 130,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
   },
   signOutButton: {
     position: 'absolute',
