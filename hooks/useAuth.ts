@@ -16,13 +16,15 @@ export function useAuth(): AuthState {
     useEffect(() => {
         // get initial session
         supabase.auth.getSession().then(({ data: { session } }) => {
+            console.log('[Auth] session loaded:', session ? session.user.email : 'none');
             setSession(session);
             setLoading(false);
         });
 
         // subscribe to auth state changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            (_event, session) => {
+            (event, session) => {
+                console.log('[Auth] state changed:', event, session?.user?.email ?? 'signed out');
                 setSession(session);
             }
         );

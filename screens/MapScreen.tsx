@@ -17,6 +17,7 @@ import { useAuth } from '../hooks/useAuth';
 Mapbox.setAccessToken(MAPBOX_TOKEN);
 
 export function MapScreen() {
+  console.log('[Map] screen mounted');
   const { coords, loading, permissionGranted, error } = useLocation();
   const { session } = useAuth();
   const userId = session?.user?.id;
@@ -69,8 +70,10 @@ export function MapScreen() {
       }
 
       const isRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME).catch(() => false);
+      console.log('[Map] background location running:', isRunning);
 
       if (!isRunning) {
+        console.log('[Map] starting background location updates');
         await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
           accuracy: Location.Accuracy.Balanced,
           timeInterval: LOCATION_UPDATE_INTERVAL_MS,

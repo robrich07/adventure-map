@@ -21,3 +21,6 @@ export const WORLD_BOUNDS = {
 export const LOCATION_TASK_NAME = 'background-location-task';
 export const LOCATION_UPDATE_INTERVAL_MS = 5000;
 export const LOCATION_DISTANCE_INTERVAL_M = 10;
+
+// length of invite codes for groups
+export const INVITE_CODE_LENGTH = 6;

@@ -29,6 +29,7 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
             location.coords.latitude,
             location.coords.longitude
         );
+        console.log('[Location] tile explored:', tile.x, tile.y, 'at', location.coords.latitude.toFixed(5), location.coords.longitude.toFixed(5));
         await upsertTile(tile, session.user.id);
     }
 });

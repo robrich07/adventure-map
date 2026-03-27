@@ -15,18 +15,26 @@ export function LoginScreen() {
   }
 
   const handleLogin = async () => {
+    console.log('[Login] attempting email login for:', email);
     setLoading(true);
     setError(null);
     const { error } = await signIn(email, password);
-    if (error) setError(error);
+    if (error) {
+      console.log('[Login] email login failed:', error);
+      setError(error);
+    }
     setLoading(false);
   };
 
   const handleGoogle = async () => {
+    console.log('[Login] attempting Google login');
     setLoading(true);
     setError(null);
     const { error } = await singInWithGoogle();
-    if (error) setError(error);
+    if (error) {
+      console.log('[Login] Google login failed:', error);
+      setError(error);
+    }
     setLoading(false);
   };
 

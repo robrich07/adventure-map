@@ -34,6 +34,7 @@ export async function signIn(email: string, password: string): Promise<{ error: 
 
 // Signs the current user out and clears the local session.
 export async function signOut(): Promise<void> {
+  console.log('[Auth] signing out');
   await supabase.auth.signOut();
 }
 
