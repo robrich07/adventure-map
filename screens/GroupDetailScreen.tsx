@@ -6,9 +6,10 @@ import { leaveGroup, Group } from '../lib/groups';
 type Props = {
   group: Group;
   onBack: () => void;
+  onViewGroupMap?: (group: Group) => void;
 };
 
-export function GroupDetailScreen({ group, onBack }: Props) {
+export function GroupDetailScreen({ group, onBack, onViewGroupMap }: Props) {
   const { session } = useAuth();
   const userId = session?.user?.id ?? '';
   const { members, loading } = useGroupMembers(group.id);
@@ -66,6 +67,12 @@ export function GroupDetailScreen({ group, onBack }: Props) {
         />
       )}
 
+      {onViewGroupMap && (
+        <TouchableOpacity style={styles.mapButton} onPress={() => { console.log('[Groups] opening group map for:', group.name); onViewGroupMap(group); }}>
+          <Text style={styles.mapButtonText}>View Group Map</Text>
+        </TouchableOpacity>
+      )}
+
       <TouchableOpacity style={styles.leaveButton} onPress={handleLeave}>
         <Text style={styles.leaveText}>Leave Group</Text>
       </TouchableOpacity>
@@ -89,8 +96,16 @@ const styles = StyleSheet.create({
   },
   memberName: { fontSize: 15, fontWeight: '500' },
   memberEmail: { fontSize: 13, color: '#888', marginTop: 2 },
+  mapButton: {
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 8,
+    backgroundColor: '#3a86ff',
+    alignItems: 'center',
+  },
+  mapButtonText: { color: '#fff', fontWeight: 'bold' },
   leaveButton: {
-    marginTop: 24,
+    marginTop: 12,
     padding: 14,
     borderRadius: 8,
     borderWidth: 1,

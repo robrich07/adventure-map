@@ -24,3 +24,6 @@ export const LOCATION_DISTANCE_INTERVAL_M = 10;
 
 // length of invite codes for groups
 export const INVITE_CODE_LENGTH = 6;
+
+// How long a pending group tile stays around before it dies bc no one went
+export const PENDING_TILE_EXPIRY_MS = 3 * 60 * 1000 // 3 minutos

@@ -1,27 +1,40 @@
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View, ActivityIndicator, TouchableOpacity } from 'react-native';
 import Mapbox, { Camera, UserLocation, UserLocationRenderMode } from '@rnmapbox/maps';
-import { useLocation } from '../hooks/useLocation';
 import { MAPBOX_TOKEN } from '../constants/map';
 import { FogOverlay } from '../components/FogOverlay';
 import { DebugTileGrid } from '../components/DebugTileGrid';
 import { BoundingBox, TileId } from '../lib/tiles';
-import '../tasks/locationTask';
 import { useMasterPolygon } from '../hooks/useMasterPolygon';
+import { useGroupMasterPolygon } from '../hooks/useGroupMasterPolygon';
 import { getAllTilesFromSupabase } from '../lib/database';
-import * as Location from 'expo-location';
-import { LOCATION_TASK_NAME, LOCATION_UPDATE_INTERVAL_MS, LOCATION_DISTANCE_INTERVAL_M } from '../constants/map';
 import { signOut } from '../lib/auth';
 import { useAuth } from '../hooks/useAuth';
+import { Group } from '../lib/groups';
+import type { LocationObjectCoords } from 'expo-location';
 
 Mapbox.setAccessToken(MAPBOX_TOKEN);
 
-export function MapScreen() {
-  console.log('[Map] screen mounted');
-  const { coords, loading, permissionGranted, error } = useLocation();
+type Props = {
+  coords: LocationObjectCoords | null;
+  locationLoading: boolean;
+  permissionGranted: boolean;
+  locationError: string | null;
+  groupOverride?: Group | null;
+  onBackFromGroup?: () => void;
+};
+
+export function MapScreen({ coords, locationLoading, permissionGranted, locationError, groupOverride, onBackFromGroup }: Props) {
   const { session } = useAuth();
   const userId = session?.user?.id;
-  const masterPolygon = useMasterPolygon(userId ?? '');
+  const personalPolygon = useMasterPolygon(userId ?? '');
+  const groupPolygon = useGroupMasterPolygon(
+    groupOverride?.id ?? '',
+    userId ?? ''
+  );
+
+  // Use group polygon when viewing a group, otherwise personal
+  const masterPolygon = groupOverride ? groupPolygon : personalPolygon;
   const [debugGrid, setDebugGrid] = useState(false);
   const [debugTiles, setDebugTiles] = useState<TileId[]>([]);
   const [zoomLevel, setZoomLevel] = useState(14);
@@ -49,47 +62,22 @@ export function MapScreen() {
     const bounds = region?.properties?.visibleBounds;
     if (!bounds) return;
     const [[maxLng, maxLat], [minLng, minLat]] = bounds;
-    setVisibleBounds({ minLat, maxLat, minLng, maxLng });
+    setVisibleBounds(prev => {
+      if (prev.minLat === minLat && prev.maxLat === maxLat &&
+          prev.minLng === minLng && prev.maxLng === maxLng) return prev;
+      return { minLat, maxLat, minLng, maxLng };
+    });
   }, []);
 
   const handleCameraChanged = useCallback((event: any) => {
     const zoom = event?.properties?.zoom;
     if (zoom != null) {
-      setZoomLevel(Math.round(zoom * 10) / 10);
+      const rounded = Math.round(zoom * 10) / 10;
+      setZoomLevel(prev => prev === rounded ? prev : rounded);
     }
   }, []);
 
-  useEffect(() => {
-    if (!permissionGranted) return;
-
-    (async () => {
-      const { status } = await Location.requestBackgroundPermissionsAsync();
-      if (status !== 'granted') {
-        console.warn('Background location permission denied');
-        return;
-      }
-
-      const isRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME).catch(() => false);
-      console.log('[Map] background location running:', isRunning);
-
-      if (!isRunning) {
-        console.log('[Map] starting background location updates');
-        await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: LOCATION_UPDATE_INTERVAL_MS,
-          distanceInterval: LOCATION_DISTANCE_INTERVAL_M,
-          showsBackgroundLocationIndicator: true,
-          foregroundService: {
-            notificationTitle: 'Adventure Map',
-            notificationBody: 'Recording your exploration.',
-            notificationColor: '#191923'
-          },
-        });
-      }
-    })();
-  }, [permissionGranted]);
-
-  if (loading) {
+  if (locationLoading) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" />
@@ -98,11 +86,11 @@ export function MapScreen() {
     );
   }
 
-  if (!permissionGranted || error) {
+  if (!permissionGranted || locationError) {
     return (
       <View style={styles.centered}>
         <Text style={styles.message}>
-          {error ?? 'Location permission is required to use this app.'}
+          {locationError ?? 'Location permission is required to use this app.'}
         </Text>
       </View>
     );
@@ -129,25 +117,33 @@ export function MapScreen() {
         />
         {debugGrid && <DebugTileGrid tiles={debugTiles} />}
       </Mapbox.MapView>
-      <TouchableOpacity
-            style={styles.debugButton}
-            onPress={() => setDebugGrid(prev => !prev)}
-        >
-            <Text style={styles.debugText}>{debugGrid ? 'Hide Grid' : 'Show Grid'}</Text>
+      {groupOverride && onBackFromGroup ? (
+        <TouchableOpacity style={styles.groupBackButton} onPress={onBackFromGroup}>
+          <Text style={styles.groupBackText}>← {groupOverride.name}</Text>
         </TouchableOpacity>
-      {debugGrid && (
-        <View style={styles.zoomBadge}>
-          <Text style={styles.debugText}>z{zoomLevel}</Text>
-        </View>
+      ) : (
+        <>
+          <TouchableOpacity
+                style={styles.debugButton}
+                onPress={() => setDebugGrid(prev => !prev)}
+            >
+                <Text style={styles.debugText}>{debugGrid ? 'Hide Grid' : 'Show Grid'}</Text>
+            </TouchableOpacity>
+          {debugGrid && (
+            <View style={styles.zoomBadge}>
+              <Text style={styles.debugText}>z{zoomLevel}</Text>
+            </View>
+          )}
+          <TouchableOpacity
+                style={styles.signOutButton}
+                onPress={signOut}
+            >
+                <Text style={styles.signOutText}>Sign Out</Text>
+            </TouchableOpacity>
+        </>
       )}
-      <TouchableOpacity
-            style={styles.signOutButton}
-            onPress={signOut}
-        >
-            <Text style={styles.signOutText}>Sign Out</Text>
-        </TouchableOpacity>
     </View>
-    
+
   );
 }
 
@@ -200,5 +196,18 @@ const styles = StyleSheet.create({
   signOutText: {
     color: '#fff',
     fontSize: 14,
-    },
+  },
+  groupBackButton: {
+    position: 'absolute',
+    top: 48,
+    left: 16,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  groupBackText: {
+    color: '#fff',
+    fontSize: 14,
+  },
 });

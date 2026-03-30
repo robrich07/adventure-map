@@ -8,7 +8,11 @@ import { useGroups } from '../hooks/useGroups';
 import { createGroup, joinGroup, Group } from '../lib/groups';
 import { GroupDetailScreen } from './GroupDetailScreen';
 
-export function GroupsScreen() {
+type Props = {
+  onViewGroupMap?: (group: Group) => void;
+};
+
+export function GroupsScreen({ onViewGroupMap }: Props) {
   const { session } = useAuth();
   const userId = session?.user?.id ?? '';
   const { groups, loading, refresh } = useGroups(userId);
@@ -70,6 +74,7 @@ export function GroupsScreen() {
           setSelectedGroup(null);
           refresh();
         }}
+        onViewGroupMap={onViewGroupMap}
       />
     );
   }

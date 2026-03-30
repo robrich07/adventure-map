@@ -1,11 +1,13 @@
 import { supabase } from "./supabase";
 import { INVITE_CODE_LENGTH } from "../constants/map";
+import { tileToCircle, unionIntoMaster } from './tiles';
+import type { Feature, Polygon, MultiPolygon } from 'geojson';
 
 // Generates a random uppercase alphanumeric invite code
 // checks supabase to ensure uniqueness
 async function generateUniqueInviteCode(length: number): Promise<string> {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ23456789";
-    
+
     while (true) {
         let code = '';
         for (let i = 0; i < length; i++) {
@@ -33,7 +35,7 @@ export async function createGroup(name: string, userId: string): Promise<{ group
     const { error: memberError } = await supabase
         .from('group_members')
         .insert({ group_id: group.id, user_id: userId});
-    
+
     if (memberError) return { groupId: null, error: memberError.message };
 
     return { groupId: group.id, error: null };
@@ -62,7 +64,7 @@ export async function joinGroup(inviteCode: string, userId: string): Promise<{ g
     const { error: memberError } = await supabase
         .from('group_members')
         .insert({ group_id: group.id, user_id: userId});
-    
+
     if (memberError) return { groupId: null, error: memberError.message };
 
     return { groupId: group.id, error: null };
@@ -75,7 +77,7 @@ export async function leaveGroup(groupId: string, userId: string): Promise<{ err
         .delete()
         .eq('group_id', groupId)
         .eq('user_id', userId);
-        
+
     if (error) return { error: error.message };
 
     // check remaining members
@@ -83,7 +85,7 @@ export async function leaveGroup(groupId: string, userId: string): Promise<{ err
         .from('group_members')
         .select('user_id')
         .eq('group_id', groupId);
-    
+
     // delete group if everyone left (big sad)
     if (!remaining || remaining.length === 0) {
         await supabase.from('groups').delete().eq('id', groupId);
@@ -124,7 +126,6 @@ export async function getUserGroups(userId: string): Promise<Group[]> {
 
 // Fetches those group members
 export async function getGroupMembers(groupId: string): Promise<GroupMember[]> {
-    // Use !group_members_user_id_fkey hint to disambiguate the FK relationship
     const { data, error } = await supabase
         .from('group_members')
         .select(`
@@ -140,4 +141,49 @@ export async function getGroupMembers(groupId: string): Promise<GroupMember[]> {
     if (error || !data) return [];
 
     return data as unknown as GroupMember[];
+}
+
+// Builds the group master polygon by fetching all unlocked tiles
+// and unioning their circles client-side
+export async function getGroupMasterPolygon(
+    groupId: string
+): Promise<Feature<Polygon | MultiPolygon> | null> {
+    const { data, error } = await supabase
+        .from('group_explored_tiles')
+        .select('tile_x, tile_y')
+        .eq('group_id', groupId);
+
+    if (error || !data || data.length === 0) return null;
+
+    let polygon: Feature<Polygon | MultiPolygon> | null = null;
+    for (const row of data) {
+        const circle = tileToCircle({ x: row.tile_x, y: row.tile_y });
+        polygon = unionIntoMaster(polygon, circle);
+    }
+
+    return polygon;
+}
+
+// Cleans up expired pending tiles for all groups the user belongs to
+export async function cleanupExpiredPendingTiles(userId: string): Promise<void> {
+    const { data: memberships } = await supabase
+        .from('group_members')
+        .select('group_id')
+        .eq('user_id', userId);
+
+    if (!memberships || memberships.length === 0) return;
+
+    const groupIds = memberships.map((m: any) => m.group_id);
+
+    const { error } = await supabase
+        .from('group_pending_tiles')
+        .delete()
+        .in('group_id', groupIds)
+        .lt('expires_at', new Date().toISOString());
+
+    if (error) {
+        console.error('[Groups] failed to cleanup expired pending tiles:', error.message);
+    } else {
+        console.log('[Groups] cleaned up expired pending tiles');
+    }
 }

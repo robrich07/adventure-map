@@ -70,14 +70,6 @@ export async function upsertTile(tile: TileId, userId: string): Promise<void> {
     const circle = tileToCircle(tile);
     const updated = unionIntoMaster(current, circle);
     await saveMasterPolygon(userId, updated);
-
-    // Sync to Supabase fire and forget
-    syncTileToSupabase(tile, userId, now).catch(err =>
-        console.error('Supabase tile sync error:', err)
-    );
-    syncMasterPolygonToSupabase(userId, updated).catch(err =>
-        console.error('Supabase polygon sync error:', err)
-    );
 }
 
 // Returns all explored tiles from db
@@ -90,35 +82,6 @@ export async function getAllTiles(userId: string): Promise<TileId[]> {
     );
 
     return rows.map(row => ({ x:row.tile_x, y:row.tile_y }));
-}
-
-// Sync tiles from local sqlite to supabase
-export async function syncTileToSupabase(tile: TileId, userId: string, now: number): Promise<void> {
-    const key = tileKey(tile);
-
-    const { error: insertError } = await supabase.from('explored_tiles').insert({
-        id: key,
-        user_id: userId,
-        tile_x: tile.x,
-        tile_y: tile.y,
-        first_visited: now,
-        last_visited: now,
-        visit_count: 1,
-    });
-
-    if (insertError?.code === '23505') {
-        // Row already exists — increment visit count via RPC
-        const { error: rpcError } = await supabase.rpc('increment_tile_visit', {
-            tile_id: key,
-            tile_user_id: userId,
-        });
-        if (rpcError) {
-            console.error('Failed to increment tile visit in Supabase:', rpcError.message);
-        }
-    } else if (insertError) {
-        console.error('Failed to sync tile to Supabase:', insertError.message);
-    }
-    
 }
 
 // Fetch all explored tiles directly from Supabase

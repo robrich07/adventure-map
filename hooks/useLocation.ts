@@ -8,7 +8,7 @@ type LocationState = {
     error: string | null;
 };
 
-export function useLocation(): LocationState {
+export function useLocation(enabled: boolean = true): LocationState {
     const [state, setState] = useState<LocationState>({
         coords: null,
         permissionGranted: false,
@@ -17,6 +17,8 @@ export function useLocation(): LocationState {
     });
 
     useEffect(() => {
+        if (!enabled) return;
+
         (async () => {
             const { status } = await Location.requestForegroundPermissionsAsync();
 
@@ -53,7 +55,7 @@ export function useLocation(): LocationState {
                 error: null,
             });
         })();
-    }, []);
+    }, [enabled]);
 
     return state;
 }
