@@ -161,6 +161,132 @@ export async function getGroupMasterPolygon(
     return { type: 'Feature', properties: {}, geometry } as Feature<Polygon | MultiPolygon>;
 }
 
+// Searches for users by username prefix
+export async function searchUsers(
+    query: string
+): Promise<{ id: string; username: string; email: string }[]> {
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('id, username, email')
+        .ilike('username', `${query}%`)
+        .limit(10);
+
+    if (error || !data) return [];
+    return data;
+}
+
+// Sends a group invite to a user
+export async function sendGroupInvite(
+    groupId: string,
+    invitedUserId: string,
+    invitedBy: string
+): Promise<{ error: string | null }> {
+    const { data: existing } = await supabase
+        .from('group_members')
+        .select('user_id')
+        .eq('group_id', groupId)
+        .eq('user_id', invitedUserId)
+        .single();
+
+    if (existing) return { error: 'User is already a member of this group.' };
+
+    // Check for an existing invite
+    const { data: existingInvite } = await supabase
+        .from('group_invites')
+        .select('id, status')
+        .eq('group_id', groupId)
+        .eq('invited_user_id', invitedUserId)
+        .single();
+
+    if (existingInvite) {
+        if (existingInvite.status === 'pending') return { error: 'User has already been invited.' };
+        // Re-invite a user who previously declined — reset to pending
+        const { error: updateErr } = await supabase
+            .from('group_invites')
+            .update({ status: 'pending', invited_by: invitedBy })
+            .eq('id', existingInvite.id);
+        if (updateErr) return { error: updateErr.message };
+        return { error: null };
+    }
+
+    const { error } = await supabase.from('group_invites').insert({
+        group_id: groupId,
+        invited_by: invitedBy,
+        invited_user_id: invitedUserId,
+    });
+
+    if (error) return { error: error.message };
+    return { error: null };
+}
+
+export type GroupInvite = {
+    id: string;
+    group_id: string;
+    invited_by: string;
+    status: 'pending' | 'accepted' | 'declined';
+    created_at: string;
+    groups: { name: string; invite_code: string } | null;
+    inviter: { username: string } | null;
+};
+
+// Fetches all pending invites for the current user
+export async function getPendingInvites(userId: string): Promise<GroupInvite[]> {
+    const { data, error } = await supabase
+        .from('group_invites')
+        .select(`
+            id,
+            group_id,
+            invited_by,
+            status,
+            created_at,
+            groups ( name, invite_code ),
+            inviter:profiles!group_invites_invited_by_fkey ( username )
+        `)
+        .eq('invited_user_id', userId)
+        .eq('status', 'pending');
+
+    if (error || !data) return [];
+    return data as unknown as GroupInvite[];
+}
+
+// Accepts a group invite and adds the user to the group
+export async function acceptGroupInvite(
+    inviteId: string,
+    groupId: string,
+    userId: string
+): Promise<{ error: string | null }> {
+    // Insert member first — if this fails, the invite stays pending (safe to retry)
+    const { error: memberError } = await supabase
+        .from('group_members')
+        .insert({ group_id: groupId, user_id: userId });
+
+    if (memberError) return { error: memberError.message };
+
+    // Only mark accepted after the member insert succeeds
+    const { error: updateError } = await supabase
+        .from('group_invites')
+        .update({ status: 'accepted' })
+        .eq('id', inviteId);
+
+    if (updateError) return { error: updateError.message };
+
+    invalidateGroupCache();
+    return { error: null };
+}
+
+// Declines a group invite
+export async function declineGroupInvite(
+    inviteId: string
+): Promise<{ error: string | null }> {
+    const { error } = await supabase
+        .from('group_invites')
+        .update({ status: 'declined' })
+        .eq('id', inviteId);
+
+    if (error) return { error: error.message };
+    return { error: null };
+}
+
 // Cleans up expired pending tiles for all groups the user belongs to
 export async function cleanupExpiredPendingTiles(userId: string): Promise<void> {
     const { data: memberships } = await supabase

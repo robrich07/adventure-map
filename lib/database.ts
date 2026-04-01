@@ -22,9 +22,14 @@ export async function initDatabase(): Promise<void> {
                 'PRAGMA table_info(explored_tiles);'
             );
             const hasUserId = tableInfo.some(col => col.name === 'user_id');
+            const hasTimeSpent = tableInfo.some(col => col.name === 'time_spent');
 
             if (!hasUserId) {
-                await db.execAsync('DROP TABLE IF EXISTS explored_tiles;')
+                await db.execAsync('DROP TABLE IF EXISTS explored_tiles;');
+            }
+            // Migrate existing tables to add time_spent column
+            if (hasUserId && !hasTimeSpent) {
+                await db.execAsync('ALTER TABLE explored_tiles ADD COLUMN time_spent INTEGER NOT NULL DEFAULT 0;');
             }
             await db.execAsync(`
                 CREATE TABLE IF NOT EXISTS explored_tiles (
@@ -35,6 +40,7 @@ export async function initDatabase(): Promise<void> {
                     first_visited INTEGER NOT NULL,
                     last_visited INTEGER NOT NULL,
                     visit_count INTEGER NOT NULL DEFAULT 1,
+                    time_spent INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY (id, user_id)
                 );
 
@@ -49,29 +55,57 @@ export async function initDatabase(): Promise<void> {
     return dbInitializing;
 }
 
-// Inserts a tile if it has not yet been visited, or updates last_visited and visit_count if it has.
-// Also incrementally unions the tile into the master polygon.
-export async function upsertTile(tile: TileId, userId: string): Promise<void> {
+// Records a tile visit. isNewVisit=true increments visit_count (entering a new tile),
+// isNewVisit=false just adds dwell time (still in the same tile).
+// dwellSeconds is the time interval since last location tick.
+export async function upsertTile(
+    tile: TileId,
+    userId: string,
+    isNewVisit: boolean,
+    dwellSeconds: number
+): Promise<void> {
     if (!db) throw new Error('Database not initialized');
 
     const now = Date.now();
     const key = tileKey(tile);
-    await db.runAsync(
-        `INSERT INTO explored_tiles (id, user_id, tile_x, tile_y, first_visited, last_visited, visit_count)
-         VALUES (?, ?, ?, ?, ?, ?, 1)
-         ON CONFLICT(id, user_id) DO UPDATE SET
-            last_visited = ?,
-            visit_count = visit_count + 1;`,
-        [key, userId, tile.x, tile.y, now, now, now]
-    );
 
-    // Update master polygon incrementally — build tile set from all tiles so connectors work
-    const current = await getMasterPolygon(userId);
-    const circle = tileToCircle(tile);
-    const allTiles = await getAllTiles(userId);
-    const tileSet = new Set(allTiles.map(t => tileKey(t)));
-    const updated = unionIntoMaster(current, circle, tile, tileSet);
-    await saveMasterPolygon(userId, updated);
+    if (isNewVisit) {
+        // First time entering this tile (or re-entering after leaving)
+        await db.runAsync(
+            `INSERT INTO explored_tiles (id, user_id, tile_x, tile_y, first_visited, last_visited, visit_count, time_spent)
+             VALUES (?, ?, ?, ?, ?, ?, 1, 0)
+             ON CONFLICT(id, user_id) DO UPDATE SET
+                last_visited = ?,
+                visit_count = visit_count + 1;`,
+            [key, userId, tile.x, tile.y, now, now, now]
+        );
+
+        // Update master polygon incrementally — build tile set from all tiles so connectors work
+        const current = await getMasterPolygon(userId);
+        const circle = tileToCircle(tile);
+        const allTiles = await getAllTiles(userId);
+        const tileSet = new Set(allTiles.map(t => tileKey(t)));
+        const updated = unionIntoMaster(current, circle, tile, tileSet);
+        await saveMasterPolygon(userId, updated);
+    } else {
+        // Still in the same tile — just update dwell time
+        await db.runAsync(
+            `UPDATE explored_tiles SET last_visited = ?, time_spent = time_spent + ?
+             WHERE id = ? AND user_id = ?;`,
+            [now, dwellSeconds, key, userId]
+        );
+    }
+
+    // Sync to Supabase via RPC (non-blocking)
+    supabase.rpc('upsert_explored_tile', {
+        p_tile_x: tile.x,
+        p_tile_y: tile.y,
+        p_user_id: userId,
+        p_is_new_visit: isNewVisit,
+        p_dwell_seconds: dwellSeconds,
+    }).then(({ error }) => {
+        if (error) console.error('[Tiles] Supabase sync error:', error.message);
+    });
 }
 
 // Returns all explored tiles from db

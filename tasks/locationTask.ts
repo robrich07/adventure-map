@@ -1,9 +1,12 @@
 import * as TaskManager from 'expo-task-manager';
 import { LocationObject } from 'expo-location';
-import { coordsToTile } from '../lib/tiles';
+import { coordsToTile, tileKey } from '../lib/tiles';
 import { upsertTile, initDatabase } from '../lib/database';
-import { LOCATION_TASK_NAME } from '../constants/map';
+import { LOCATION_TASK_NAME, LOCATION_UPDATE_INTERVAL_MS } from '../constants/map';
 import { supabase } from '../lib/supabase';
+
+// Track the last tile to distinguish new visits from dwell ticks
+let lastTileKey: string | null = null;
 
 // Cache group membership to avoid querying Supabase on every tile visit.
 // Refreshes every 5 minutes.
@@ -65,18 +68,26 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
 
     const hasGroups = await userHasGroups(session.user.id);
 
+    const dwellSeconds = Math.round(LOCATION_UPDATE_INTERVAL_MS / 1000);
+
     for (const location of locations) {
         const tile = coordsToTile(
             location.coords.latitude,
             location.coords.longitude
         );
-        console.log('[Location] tile explored:', tile.x, tile.y, 'at', location.coords.latitude.toFixed(5), location.coords.longitude.toFixed(5));
+        const currentKey = tileKey(tile);
+        const isNewVisit = currentKey !== lastTileKey;
 
-        // Local SQLite upsert — instant, works offline
-        await upsertTile(tile, session.user.id);
+        if (isNewVisit) {
+            console.log('[Location] tile explored:', tile.x, tile.y, 'at', location.coords.latitude.toFixed(5), location.coords.longitude.toFixed(5));
+        }
 
-        // Only call Supabase if user is in at least one group
-        if (hasGroups) {
+        // Local SQLite upsert + Supabase sync via RPC
+        await upsertTile(tile, session.user.id, isNewVisit, dwellSeconds);
+        lastTileKey = currentKey;
+
+        // Only call group RPC for new tile visits (dwell ticks don't affect groups)
+        if (isNewVisit && hasGroups) {
             supabase.rpc('process_group_tiles', {
                 p_tile_x: tile.x,
                 p_tile_y: tile.y,
