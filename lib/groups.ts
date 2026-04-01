@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 import { INVITE_CODE_LENGTH } from "../constants/map";
-import { tileToCircle, unionIntoMaster } from './tiles';
+import { invalidateGroupCache } from '../tasks/locationTask';
 import type { Feature, Polygon, MultiPolygon } from 'geojson';
 
 // Generates a random uppercase alphanumeric invite code
@@ -38,6 +38,7 @@ export async function createGroup(name: string, userId: string): Promise<{ group
 
     if (memberError) return { groupId: null, error: memberError.message };
 
+    invalidateGroupCache();
     return { groupId: group.id, error: null };
 }
 
@@ -67,6 +68,7 @@ export async function joinGroup(inviteCode: string, userId: string): Promise<{ g
 
     if (memberError) return { groupId: null, error: memberError.message };
 
+    invalidateGroupCache();
     return { groupId: group.id, error: null };
 }
 
@@ -91,6 +93,7 @@ export async function leaveGroup(groupId: string, userId: string): Promise<{ err
         await supabase.from('groups').delete().eq('id', groupId);
     }
 
+    invalidateGroupCache();
     return { error: null };
 }
 
@@ -143,25 +146,19 @@ export async function getGroupMembers(groupId: string): Promise<GroupMember[]> {
     return data as unknown as GroupMember[];
 }
 
-// Builds the group master polygon by fetching all unlocked tiles
-// and unioning their circles client-side
+// Fetches the pre-built group master polygon from Supabase.
+// The polygon is built server-side by process_group_tiles using PostGIS.
 export async function getGroupMasterPolygon(
     groupId: string
 ): Promise<Feature<Polygon | MultiPolygon> | null> {
     const { data, error } = await supabase
-        .from('group_explored_tiles')
-        .select('tile_x, tile_y')
-        .eq('group_id', groupId);
+        .rpc('get_group_polygon', { p_group_id: groupId })
+        .single() as { data: { geojson: string | null } | null; error: any };
 
-    if (error || !data || data.length === 0) return null;
+    if (error || !data || !data.geojson) return null;
 
-    let polygon: Feature<Polygon | MultiPolygon> | null = null;
-    for (const row of data) {
-        const circle = tileToCircle({ x: row.tile_x, y: row.tile_y });
-        polygon = unionIntoMaster(polygon, circle);
-    }
-
-    return polygon;
+    const geometry = JSON.parse(data.geojson);
+    return { type: 'Feature', properties: {}, geometry } as Feature<Polygon | MultiPolygon>;
 }
 
 // Cleans up expired pending tiles for all groups the user belongs to

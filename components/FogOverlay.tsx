@@ -18,11 +18,24 @@ export function FogOverlay({ masterPolygon, visibleBounds, sourceId = 'fog-sourc
     const lastGeoJSONRef = useRef<ReturnType<typeof buildFogGeoJSON> | null>(null);
 
     const fogGeoJSON = useMemo(() => {
-        const clipped = masterPolygon
-            ? clipToViewport(masterPolygon, visibleBounds)
-            : null;
+        // DEBUG: bypass clipToViewport to isolate rendering issue
+        const clipped = masterPolygon;
+        // const clipped = masterPolygon
+        //     ? clipToViewport(masterPolygon, visibleBounds)
+        //     : null;
+
+        console.log(`[FogOverlay] masterPolygon type=${masterPolygon?.geometry?.type ?? 'null'} clipped type=${clipped?.geometry?.type ?? 'null'}`);
 
         const geoJSON = buildFogGeoJSON(clipped);
+
+        const fogType = geoJSON?.geometry?.type ?? 'null';
+        const fogRings = fogType === 'Polygon'
+            ? (geoJSON as any).geometry.coordinates.length
+            : fogType === 'MultiPolygon'
+            ? (geoJSON as any).geometry.coordinates.length
+            : 0;
+        console.log(`[FogOverlay] fog type=${fogType} rings/polys=${fogRings}`);
+
         const json = JSON.stringify(geoJSON);
 
         // Return the same object reference if nothing changed

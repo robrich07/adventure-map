@@ -77,7 +77,7 @@ export function MapScreen({ coords, locationLoading, permissionGranted, location
     }
   }, []);
 
-  if (locationLoading) {
+  if (locationLoading || !coords) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" />

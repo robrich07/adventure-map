@@ -8,6 +8,9 @@ type LocationState = {
     error: string | null;
 };
 
+// Watches the device location continuously so coords stay fresh across all screens.
+// Also keeps a foreground location subscription active, which ensures the Android
+// emulator keeps delivering mock route updates to the background location task.
 export function useLocation(enabled: boolean = true): LocationState {
     const [state, setState] = useState<LocationState>({
         coords: null,
@@ -18,6 +21,8 @@ export function useLocation(enabled: boolean = true): LocationState {
 
     useEffect(() => {
         if (!enabled) return;
+
+        let subscription: Location.LocationSubscription | null = null;
 
         (async () => {
             const { status } = await Location.requestForegroundPermissionsAsync();
@@ -31,30 +36,46 @@ export function useLocation(enabled: boolean = true): LocationState {
                 }));
                 return;
             }
-        
+
+            // Get initial position so the map can center immediately
             const location = await Location.getCurrentPositionAsync({
                 accuracy: Location.Accuracy.Balanced,
             }).catch(async () => {
                 return await Location.getLastKnownPositionAsync();
             });
 
-            if (!location) {
+            if (location) {
+                setState({
+                    coords: location.coords,
+                    permissionGranted: true,
+                    loading: false,
+                    error: null,
+                });
+            } else {
                 setState(s => ({
                     ...s,
                     loading: false,
                     permissionGranted: true,
-                    error: 'Could not determine location.',
                 }));
-                return;
             }
 
-            setState({
-                coords: location.coords,
-                permissionGranted: true,
-                loading: false,
-                error: null,
-            });
+            // Subscribe to continuous updates so coords stay current
+            subscription = await Location.watchPositionAsync(
+                { accuracy: Location.Accuracy.Balanced, distanceInterval: 10 },
+                (loc) => {
+                    setState(s => ({
+                        ...s,
+                        coords: loc.coords,
+                        permissionGranted: true,
+                        loading: false,
+                    }));
+                }
+            );
         })();
+
+        return () => {
+            subscription?.remove();
+        };
     }, [enabled]);
 
     return state;

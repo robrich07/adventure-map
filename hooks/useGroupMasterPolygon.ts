@@ -34,11 +34,11 @@ export function useGroupMasterPolygon(
             const polygon = await getGroupMasterPolygon(groupId);
             updateIfChanged(polygon);
 
-            // Poll for updates at the same rate as location updates
+            // Poll for updates — polygon is built server-side so this is a cheap read
             interval = setInterval(async () => {
                 const updated = await getGroupMasterPolygon(groupId);
                 updateIfChanged(updated);
-            }, LOCATION_UPDATE_INTERVAL_MS);
+            }, LOCATION_UPDATE_INTERVAL_MS * 2);
         })();
 
         return () => {

@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import type { Feature, Polygon, MultiPolygon } from 'geojson';
-import { TileId, tileKey, tileToCircle, unionIntoMaster } from './tiles';
+import { TileId, tileKey, tileToCircle, unionIntoMaster, getNeighborTiles } from './tiles';
 import { supabase } from './supabase';
 
 const DB_NAME = 'adventure-map.db'
@@ -65,10 +65,12 @@ export async function upsertTile(tile: TileId, userId: string): Promise<void> {
         [key, userId, tile.x, tile.y, now, now, now]
     );
 
-    // Update master polygon incrementally
+    // Update master polygon incrementally — build tile set from all tiles so connectors work
     const current = await getMasterPolygon(userId);
     const circle = tileToCircle(tile);
-    const updated = unionIntoMaster(current, circle);
+    const allTiles = await getAllTiles(userId);
+    const tileSet = new Set(allTiles.map(t => tileKey(t)));
+    const updated = unionIntoMaster(current, circle, tile, tileSet);
     await saveMasterPolygon(userId, updated);
 }
 

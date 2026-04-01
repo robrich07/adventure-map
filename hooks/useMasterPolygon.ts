@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import type { Feature, Polygon, MultiPolygon } from 'geojson';
-import * as turf from '@turf/turf';
 import {
     initDatabase,
     getMasterPolygon,
@@ -10,7 +9,7 @@ import {
     syncTilesFromSupabase,
     getAllTiles,
 } from '../lib/database';
-import { tileToCircle } from '../lib/tiles';
+import { tileKey, tileToCircle, unionIntoMaster } from '../lib/tiles';
 import { LOCATION_UPDATE_INTERVAL_MS } from '../constants/map';
 
 // How often to push the local master polygon to Supabase (30 seconds)
@@ -34,23 +33,32 @@ export function useMasterPolygon(
         (async () => {
             await initDatabase();
 
-            // Try to restore master polygon from Supabase
-            await syncMasterPolygonFromSupabase(userId);
+            // Check for local polygon first — the background task keeps it up to date
+            // Only pull from Supabase if local is missing (fresh install / cache cleared)
             let stored = await getMasterPolygon(userId);
 
-            // Fallback: rebuild master polygon from individual tiles if missing
+            if (!stored) {
+                await syncMasterPolygonFromSupabase(userId);
+                stored = await getMasterPolygon(userId);
+            }
+
+            // Fallback: rebuild master polygon from individual tiles if still missing
             if (!stored) {
                 await syncTilesFromSupabase(userId);
                 const tiles = await getAllTiles(userId);
 
                 if (tiles.length > 0) {
-                    const circles = tiles.map(tileToCircle);
-                    const merged = circles.length === 1
-                        ? circles[0]
-                        : turf.union(turf.featureCollection(circles))!;
-                    await saveMasterPolygon(userId, merged);
-                    await syncMasterPolygonToSupabase(userId, merged);
-                    stored = merged;
+                    const tileSet = new Set(tiles.map(t => tileKey(t)));
+                    let merged: Feature<Polygon | MultiPolygon> | null = null;
+                    for (const tile of tiles) {
+                        const circle = tileToCircle(tile);
+                        merged = unionIntoMaster(merged, circle, tile, tileSet);
+                    }
+                    if (merged) {
+                        await saveMasterPolygon(userId, merged);
+                        await syncMasterPolygonToSupabase(userId, merged);
+                        stored = merged;
+                    }
                 }
             }
 

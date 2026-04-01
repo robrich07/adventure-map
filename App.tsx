@@ -68,16 +68,17 @@ export default function App() {
 
   return (
     <View style={{ flex: 1 }}>
-      {activeTab === 'map' ? (
+      <View style={{ flex: 1, display: activeTab === 'map' ? 'flex' : 'none' }}>
         <MapScreen
           coords={coords}
           locationLoading={locationLoading}
           permissionGranted={permissionGranted}
           locationError={locationError}
         />
-      ) : (
+      </View>
+      <View style={{ flex: 1, display: activeTab === 'groups' ? 'flex' : 'none' }}>
         <GroupsScreen onViewGroupMap={(group) => { console.log('[Nav] viewing group map:', group.name); setViewingGroup(group); }} />
-      )}
+      </View>
       <View style={styles.tabBar}>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'map' && styles.activeTab]}
