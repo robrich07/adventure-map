@@ -108,6 +108,62 @@ export async function upsertTile(
     });
 }
 
+// Batch-inserts multiple tiles and rebuilds the master polygon once at the end.
+// Used by tile interpolation to avoid N separate polygon rebuild cycles.
+// Each tile gets dwellSeconds=0 since the user passed through without stopping.
+export async function upsertTilesBatch(
+    tiles: TileId[],
+    userId: string,
+    dwellSeconds: number
+): Promise<void> {
+    if (!db) throw new Error('Database not initialized');
+    if (tiles.length === 0) return;
+
+    const now = Date.now();
+
+    // Insert all tiles into SQLite
+    for (const tile of tiles) {
+        const key = tileKey(tile);
+        await db.runAsync(
+            `INSERT INTO explored_tiles (id, user_id, tile_x, tile_y, first_visited, last_visited, visit_count, time_spent)
+             VALUES (?, ?, ?, ?, ?, ?, 1, 0)
+             ON CONFLICT(id, user_id) DO UPDATE SET
+                last_visited = ?,
+                visit_count = visit_count + 1;`,
+            [key, userId, tile.x, tile.y, now, now, now]
+        );
+    }
+
+    // Rebuild master polygon once for all new tiles
+    const current = await getMasterPolygon(userId);
+    const allTiles = await getAllTiles(userId);
+    const tileSet = new Set(allTiles.map(t => tileKey(t)));
+
+    let masterPoly = current;
+    for (const tile of tiles) {
+        // tileSet already contains these tiles (they were just inserted and getAllTiles fetched them),
+        // so neighbors/connectors will connect consecutive interpolated tiles to each other
+        const circle = tileToCircle(tile);
+        masterPoly = unionIntoMaster(masterPoly, circle, tile, tileSet);
+    }
+
+    // masterPoly is guaranteed non-null here: tiles.length > 0 and unionIntoMaster always returns a value
+    await saveMasterPolygon(userId, masterPoly as Feature<Polygon | MultiPolygon>);
+
+    // Sync each tile to Supabase (non-blocking)
+    for (const tile of tiles) {
+        supabase.rpc('upsert_explored_tile', {
+            p_tile_x: tile.x,
+            p_tile_y: tile.y,
+            p_user_id: userId,
+            p_is_new_visit: true,
+            p_dwell_seconds: dwellSeconds,
+        }).then(({ error }) => {
+            if (error) console.error('[Tiles] Supabase batch sync error:', error.message);
+        });
+    }
+}
+
 // Returns all explored tiles from db
 export async function getAllTiles(userId: string): Promise<TileId[]> {
     if (!db) throw new Error('Database not initialized');

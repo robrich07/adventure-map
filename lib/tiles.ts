@@ -241,6 +241,58 @@ export function clipToViewport(
     }
 }
 
+// Computes the Haversine distance in meters between two lat/lng points.
+// Uses turf.distance which implements the Haversine formula internally.
+export function haversineDistanceM(
+    lat1: number, lng1: number,
+    lat2: number, lng2: number
+): number {
+    return turf.distance(
+        turf.point([lng1, lat1]),
+        turf.point([lng2, lat2]),
+        { units: 'meters' }
+    );
+}
+
+// Walks the line between two lat/lng points and returns every tile crossed,
+// excluding the start tile (already recorded by the previous update).
+// Uses parametric sampling at half-tile intervals to guarantee no tile is skipped.
+export function interpolateTiles(
+    startLat: number, startLng: number,
+    endLat: number, endLng: number
+): TileId[] {
+    const startTile = coordsToTile(startLat, startLng);
+    const endTile = coordsToTile(endLat, endLng);
+
+    // Same tile — nothing to interpolate
+    if (startTile.x === endTile.x && startTile.y === endTile.y) return [];
+
+    const dx = Math.abs(endTile.x - startTile.x);
+    const dy = Math.abs(endTile.y - startTile.y);
+    const numSteps = Math.max(dx, dy) * 2;
+
+    const seen = new Set<string>();
+    const startKey = tileKey(startTile);
+    seen.add(startKey);
+
+    const result: TileId[] = [];
+
+    for (let i = 1; i <= numSteps; i++) {
+        const t = i / numSteps;
+        const lat = startLat + t * (endLat - startLat);
+        const lng = startLng + t * (endLng - startLng);
+        const tile = coordsToTile(lat, lng);
+        const key = tileKey(tile);
+
+        if (!seen.has(key)) {
+            seen.add(key);
+            result.push(tile);
+        }
+    }
+
+    return result;
+}
+
 // Builds the fog GeoJSON by subtracting the explored polygon from a world-covering rectangle.
 // Uses turf.difference which correctly handles rings (unexplored centers stay fogged).
 // May return a MultiPolygon when there are disconnected explored areas.

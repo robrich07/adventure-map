@@ -27,3 +27,7 @@ export const INVITE_CODE_LENGTH = 6;
 
 // How long a pending group tile stays around before it dies bc no one went
 export const PENDING_TILE_EXPIRY_MS = 3 * 60 * 1000 // 3 minutos
+
+// Tile interpolation limits
+export const INTERPOLATION_MAX_SPEED_MPS = 67; // ~150 mph
+export const INTERPOLATION_MAX_DISTANCE_M = 1609; // ~1 mile
