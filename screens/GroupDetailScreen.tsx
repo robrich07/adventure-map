@@ -3,6 +3,7 @@ import { View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, Activity
 import { useAuth } from '../hooks/useAuth';
 import { useGroupMembers } from '../hooks/useGroupMembers';
 import { leaveGroup, searchUsers, sendGroupInvite, Group } from '../lib/groups';
+import { getFriends } from '../lib/friends';
 
 type Props = {
     group: Group;
@@ -22,6 +23,13 @@ export function GroupDetailScreen({ group, onBack, onViewGroupMap }: Props) {
     const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
     const [searching, setSearching] = useState(false);
     const [inviteMessage, setInviteMessage] = useState<{ text: string; isError: boolean } | null>(null);
+    const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
+
+    // Load friends list when invite mode opens so we can filter results
+    const loadFriends = async () => {
+        const friends = await getFriends(userId);
+        setFriendIds(new Set(friends.map(f => f.id)));
+    };
 
     const handleSearch = async (query: string) => {
         setSearchQuery(query);
@@ -31,10 +39,10 @@ export function GroupDetailScreen({ group, onBack, onViewGroupMap }: Props) {
             return;
         }
         setSearching(true);
-        const results = await searchUsers(query.trim());
-        // Filter out current user and existing members
+        const results = await searchUsers(query.trim(), userId);
+        // Filter to only friends who are not already members
         const memberIds = new Set(members.map(m => m.user_id));
-        setSearchResults(results.filter(r => r.id !== userId && !memberIds.has(r.id)));
+        setSearchResults(results.filter(r => friendIds.has(r.id) && !memberIds.has(r.id)));
         setSearching(false);
     };
 
@@ -107,10 +115,12 @@ export function GroupDetailScreen({ group, onBack, onViewGroupMap }: Props) {
             <TouchableOpacity
                 style={styles.inviteToggle}
                 onPress={() => {
-                    setShowInvite(!showInvite);
+                    const opening = !showInvite;
+                    setShowInvite(opening);
                     setSearchQuery('');
                     setSearchResults([]);
                     setInviteMessage(null);
+                    if (opening) loadFriends();
                 }}
             >
                 <Text style={styles.inviteToggleText}>

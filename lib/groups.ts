@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { INVITE_CODE_LENGTH } from "../constants/map";
 import { invalidateGroupCache } from '../tasks/locationTask';
+import { areFriends } from './friends';
 import type { Feature, Polygon, MultiPolygon } from 'geojson';
 
 // Generates a random uppercase alphanumeric invite code
@@ -161,14 +162,17 @@ export async function getGroupMasterPolygon(
     return { type: 'Feature', properties: {}, geometry } as Feature<Polygon | MultiPolygon>;
 }
 
-// Searches for users by username prefix
+// Searches for public users by username prefix (used for group invites)
 export async function searchUsers(
-    query: string
+    query: string,
+    currentUserId: string
 ): Promise<{ id: string; username: string; email: string }[]> {
     const { data, error } = await supabase
         .from('profiles')
         .select('id, username, email')
         .ilike('username', `${query}%`)
+        .eq('is_public', true)
+        .neq('id', currentUserId)
         .limit(10);
 
     if (error || !data) return [];
@@ -189,6 +193,10 @@ export async function sendGroupInvite(
         .single();
 
     if (existing) return { error: 'User is already a member of this group.' };
+
+    // Must be friends to send a group invite (6-digit code bypass is separate)
+    const friends = await areFriends(invitedBy, invitedUserId);
+    if (!friends) return { error: 'You must be friends with this user to invite them.' };
 
     // Check for an existing invite
     const { data: existingInvite } = await supabase

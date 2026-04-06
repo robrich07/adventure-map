@@ -7,13 +7,14 @@ import { MapScreen } from './screens/MapScreen';
 import { LoginScreen } from './screens/LoginScreen';
 import { LoadingScreen } from './screens/LoadingScreen';
 import { GroupsScreen } from './screens/GroupsScreen';
+import { FriendsScreen } from './screens/FriendsScreen';
 import { Group } from './lib/groups';
 import { LOCATION_TASK_NAME, LOCATION_UPDATE_INTERVAL_MS, LOCATION_DISTANCE_INTERVAL_M } from './constants/map';
 import './tasks/locationTask';
 
 export default function App() {
   const { session, loading } = useAuth();
-  const [activeTab, setActiveTab] = useState<'map' | 'groups'>('map');
+  const [activeTab, setActiveTab] = useState<'map' | 'groups' | 'friends'>('map');
   const [viewingGroup, setViewingGroup] = useState<Group | null>(null);
   const isAuthenticated = !loading && !!session;
   const { coords, loading: locationLoading, permissionGranted, error: locationError } = useLocation(isAuthenticated);
@@ -79,6 +80,9 @@ export default function App() {
       <View style={{ flex: 1, display: activeTab === 'groups' ? 'flex' : 'none' }}>
         <GroupsScreen onViewGroupMap={(group) => { console.log('[Nav] viewing group map:', group.name); setViewingGroup(group); }} />
       </View>
+      <View style={{ flex: 1, display: activeTab === 'friends' ? 'flex' : 'none' }}>
+        <FriendsScreen userId={session.user.id} />
+      </View>
       <View style={styles.tabBar}>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'map' && styles.activeTab]}
@@ -91,6 +95,12 @@ export default function App() {
           onPress={() => { console.log('[Nav] switched to Groups'); setActiveTab('groups'); }}
         >
           <Text style={styles.tabText}>Groups</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'friends' && styles.activeTab]}
+          onPress={() => { console.log('[Nav] switched to Friends'); setActiveTab('friends'); }}
+        >
+          <Text style={styles.tabText}>Friends</Text>
         </TouchableOpacity>
       </View>
     </View>

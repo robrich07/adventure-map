@@ -18,6 +18,7 @@ export async function signUp(email: string, password: string, username: string):
       id: data.user.id,
       username,
       email,
+      is_public: true,
     });
 
   if (profileError) return { error: profileError.message };
